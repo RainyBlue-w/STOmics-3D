@@ -551,26 +551,6 @@ spatial_tab_plotFeature3D = dbc.Tab(
                   dmc.Col(dmc.Text(id='TEXT_dataSummary_3D', color='gray'), span=12),
                   dmc.Col(
                     fac.AntdCollapse(
-                      title = 'germ layer', className='fac-AntdCollapse-inline',
-                      forceRender=True, isOpen=False, ghost=True,
-                      children = [
-                        dmc.ChipGroup(
-                          children = [
-                            dmc.Chip(
-                              x.capitalize(),
-                              value=x, size='xs'
-                            ) for x in ['ectoderm', 'mesoderm', 'endoderm']
-                          ],
-                          value = ['ectoderm', 'mesoderm', 'endoderm'],
-                          id = 'CHIPGROUP_germLayer_3D',
-                          multiple = True, spacing=3,
-                        )
-                      ]
-                    ),
-                    span=12,
-                  ),
-                  dmc.Col(
-                    fac.AntdCollapse(
                       title = 'Filter(metadata)', className='fac-AntdCollapse-inline',
                       forceRender=True, isOpen=False, ghost=True,
                       children = [
@@ -1557,7 +1537,7 @@ def store_cellsObs_forJSONtoPlot_3D(stage, featureType):
   else:
     raise PreventUpdate
   
-  obs = adata.obs[['x','y','z','germ_layer','celltype']]
+  obs = adata.obs[['x','y','z','celltype']]
   return obs.to_dict('index')
 
 # store sliceInfo for JSONtoPLot
