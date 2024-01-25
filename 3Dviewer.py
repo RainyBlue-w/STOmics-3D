@@ -15,7 +15,7 @@ import feffery_antd_components as fac
 import feffery_utils_components as fuc
 import dash_bootstrap_components as dbc
 from dash_extensions.enrich import Output, Input, html, callback, DashProxy, LogTransform, DashLogger, Serverside, ServersideOutputTransform
-from dash_extensions.enrich import MultiplexerTransform
+from dash_extensions.enrich import MultiplexerTransform, Trigger, TriggerTransform
 
 import plotly.express as px
 import plotly.graph_objects as go
@@ -34,6 +34,8 @@ import numpy as np
 import h5py
 import json
 import time
+import uuid
+from sqlalchemy import true
 
 import squidpy as sq
 
@@ -333,7 +335,7 @@ app = DashProxy(
     {'src': 'https://deno.land/x/corejs@v3.31.1/index.js', 'type': 'module'}
   ],
   transforms=[
-    LogTransform(), ServersideOutputTransform(), MultiplexerTransform()
+    LogTransform(), ServersideOutputTransform(), MultiplexerTransform(), TriggerTransform()
   ],
 )
 
@@ -387,14 +389,15 @@ config_violin = {
 SET_STORE_JSONtoPlot_3D = html.Div(
   [
     dcc.Store(data={}, id='STORE_obs_3D'),
-    dcc.Store(data={}, id='STORE_cellsObsFilter_3D'),
-    dcc.Store(data={}, id='STORE_cellsExpFilter_3D'),
+    dcc.Store(data={}, id='STORE_cellsObsFilter_3D'), # Server-side
+    dcc.Store(data={}, id='STORE_cellsSliceFilter_3D'), # Server-side
+    dcc.Store(data={}, id='STORE_cellsExpFilter_3D'), # Server-side
     dcc.Store(data={}, id='STORE_singleExp_3D'),
     dcc.Store(data={}, id='STORE_multiExp_3D'),
     dcc.Store(data={}, id='STORE_mixedColor_3D'),
     dcc.Store(data=False, id='STORE_ifmulti_3D'),
     dcc.Store(data=ctp_cmap, id='STORE_ctpCmap_3D', storage_type='local'),
-    dcc.Store(id='STORE_cellsCtpFilter_3D'),
+    dcc.Store(id='STORE_cellsCtpFilter_3D'), # Server-side
     dcc.Store(id='STORE_cellsIntersection_3D'),
     dcc.Store(id='test'),
   ]
@@ -460,6 +463,49 @@ def drawerContent_ctpColorPicker(celltypes: List[str], cmap: Dict, swatches=colo
   )
 
   return stack
+
+def selectData_newFilter(index: int=0):
+  component = html.Div([
+    dcc.Store(id={'type': 'STORE_filterBodyPreservedCells_3D', 'index': index}), # store preserved cells
+    dmc.Grid([
+      dmc.Col(
+        [
+          dmc.Text('Item', className='dmc-Text-label'),
+          dcc.Dropdown(id={'type': 'DROPDOWN_filterItem_3D', 'index': index}, clearable=True, searchable=True,
+                       persistence=True, persistence_type='local'),
+        ],
+        span=7),
+      dmc.Col(
+        [
+          dmc.Text('Type', className='dmc-Text-label'),
+          dcc.Dropdown(['numeric', 'categorical'], id={'type': 'DROPDOWN_filterType_3D', 'index': index}, 
+                       clearable=False, searchable=False, persistence=True, persistence_type='local'),
+        ],
+        span=5
+      ),
+      dmc.Col(dmc.Switch(onLabel='ON', offLabel='OFF', id={'type': 'SWITCH_filterApply_3D', 'index': index}, size='lg', checked=False,), span=4),
+      dmc.Col(
+        fac.AntdPopover(
+          placement='right',
+          trigger='click',
+          children=[
+            dmc.Button('Configure', color='dark', size='sm', id={'type': 'BUTTON_filterConfigure_3D', 'index': index}, fullWidth=True),
+          ],
+          id={'type': 'POPOVER_filterBody_3D', 'index': index},
+          style={'width': '30vh'}
+        ),
+        span=8
+      ),
+      dmc.Col(
+        dmc.Text('Selected cells: ', id={'type': 'TEXT_filterBodyPreservedCells_3D', 'index': index}, className='dmc-Text-sidebar-tips'),
+        span=12
+      )
+    ]),
+    dmc.Space(h=5),
+    dmc.Divider(variant='dashed'),
+    dmc.Space(h=5),
+  ])
+  return component
 
 # In[] tab
 
@@ -528,36 +574,23 @@ spatial_tab_plotFeature3D = dbc.Tab(
                       title = 'Filter(metadata)', className='fac-AntdCollapse-inline',
                       forceRender=True, isOpen=False, ghost=True,
                       children = [
-                        dmc.Grid([
-                          dmc.Col(
-                            [
-                              dmc.Text('Item', className='dmc-Text-label'),
-                              dcc.Dropdown(id='DROPDOWN_filterItem_3D', clearable=True, searchable=True,
-                                            persistence=True, persistence_type='local'),
-                            ],
-                            span=7),
-                          dmc.Col(
-                            [
-                              dmc.Text('Type', className='dmc-Text-label'),
-                              dcc.Dropdown(['numeric', 'categorical'], id='DROPDOWN_filterType_3D', clearable=False, searchable=False,
-                                            persistence=True, persistence_type='local'),
-                            ],
-                            span=5
-                          ),
-                          dmc.Col(dmc.Switch(onLabel='ON', offLabel='OFF', id='SWITCH_filterApply_3D', size='lg', checked=False,), span=4),
-                          dmc.Col(
-                            fac.AntdPopover(
-                              placement='right',
-                              trigger='click',
-                              children=[
-                                dmc.Button('Configure', color='dark', size='sm', id='BUTTON_filterConfigure_3D', fullWidth=True),
-                              ],
-                              id='POPOVER_filterBody_3D',
-                              style={'width': '30vh'}
-                            ),
-                            span=8
-                          ),
-                        ]),
+                        html.Div(
+                          children= [selectData_newFilter(index=i) for i in [0]],
+                          id='CONTAINER_filterList_3D',
+                        ),
+                        dcc.Store(id='STORE_filterCurNumber_3D', data=1),
+                        dmc.Grid(
+                          [
+                            dmc.Col(dmc.Button(
+                              id='BUTTON_addFilter_3D', color='teal', fullWidth=True,
+                              children = DashIconify(icon="fluent:add-square-20-regular", width=20)
+                            ), span=6),
+                            dmc.Col(dmc.Button(
+                              id='BUTTON_deleteFilter_3D', color='red', fullWidth=True,
+                              children = DashIconify(icon="fluent:subtract-square-20-regular", width=20)
+                            ), span=6),
+                          ],
+                        ),
                       ]
                     ),
                     span=12
@@ -989,81 +1022,215 @@ spatial_tabs = dbc.Tabs(
 # select data -> filter
 
 @app.callback( # update item options
-  Output('DROPDOWN_filterItem_3D', 'options'),
-  Output('SWITCH_filterApply_3D', 'checked'),
-  Input('DROPDOWN_stage_3D', 'value')
+  Output({'type': 'DROPDOWN_filterItem_3D', 'index': ALL}, 'options'),
+  Output({'type': 'SWITCH_filterApply_3D', 'index': ALL}, 'checked'),
+  
+  Input('DROPDOWN_stage_3D', 'value'),
+  State('STORE_filterCurNumber_3D', 'data'),
   # prevent_initial_call=True
 )
-def update_selectData_FilterItemOptions_3D(stage):
+def update_selectData_FilterItemOptions_3D(stage, curNumber):
   obs = exp_data[stage].obs
   options = obs.columns.to_list()
-  return options, False
-
+  return [options]*curNumber, [False]*curNumber
 
 @app.callback( # update item type (numeric/categorical)
-  Output('DROPDOWN_filterType_3D', 'value'),
-  Output('SWITCH_filterApply_3D', 'checked'),
-  Input('DROPDOWN_filterItem_3D', 'value'),
+  Output({'type': 'DROPDOWN_filterType_3D', 'index': MATCH}, 'value'),
+  Output({'type': 'SWITCH_filterApply_3D', 'index': MATCH}, 'checked'),
+  
+  Input({'type': 'DROPDOWN_filterItem_3D', 'index': MATCH}, 'value'),
   State('DROPDOWN_stage_3D', 'value'),
-  # prevent_initial_call=True
 )
 def update_selectData_FilterType_3D(item, stage):
 
   if item is None:
     return no_update, False
   
-  obs = exp_data[stage].obs
-  dtype = obs[item].dtype
+  dtype = exp_data[stage].obs[item].dtype
   itemType = 'categorical' if dtype==np.dtype('O') else 'numeric'
   
   return itemType, False
 
 @app.callback( # generate filter body
-  Output('POPOVER_filterBody_3D', 'content'),
-  Output('POPOVER_filterBody_3D', 'style'),
-  Output('SWITCH_filterApply_3D', 'checked'),
-  State('DROPDOWN_filterItem_3D', 'value'),
-  Input('DROPDOWN_filterType_3D', 'value'),
+  Output({'type': 'POPOVER_filterBody_3D', 'index': MATCH}, 'content'),
+  Output({'type': 'SWITCH_filterApply_3D', 'index': MATCH}, 'checked'),
+  
+  State({'type': 'DROPDOWN_filterItem_3D', 'index': MATCH}, 'value'),
+  Input({'type': 'DROPDOWN_filterType_3D', 'index': MATCH}, 'value'),
+  State({'type': 'DROPDOWN_filterType_3D', 'index': MATCH}, 'id'), # MATCH <-> id['index']
   State('DROPDOWN_stage_3D', 'value'),
-  prevent_initial_call=True,
+  # prevent_initial_call=True,
+  # _allow_dynamic_callbacks=True, # not suitable for multi-user/multi-process apps, which will cause growing dynamic callbacks
 )
-def update_selectData_FilterContainer_3D(item, itemType, stage):
+def update_selectData_FilterContainer_3D(item, itemType, id, stage):
   
   if item is None:
     raise PreventUpdate
   
-  patch_style = Patch()
-  
   obs = exp_data[stage].obs
+  
+  index = id['index']
+  
   if itemType == 'numeric':
     component = html.Div(
       [
         dmc.Grid(
           [
             dmc.Col(dmc.Text(f'{item}'), span=6),
-            dmc.Col(dmc.Text(' > '), span=2),
-            dmc.Col(dmc.NumberInput(precision=4, step=0.1), span=4),
+            dmc.Col(dmc.Text(' ≥ '), span=2),
+            dmc.Col(
+              dmc.NumberInput(precision=4, step=0.1, id={'type': 'NUMBERINPUT_filterBodyNumberLeft', 'index': index}),
+              span=4
+            ),
             dmc.Col(dmc.Text(f'{item}'), span=6),
-            dmc.Col(dmc.Text(' < '), span=2),
-            dmc.Col(dmc.NumberInput(precision=4, step=0.1), span=4)
+            dmc.Col(dmc.Text(' ≤ '), span=2),
+            dmc.Col(
+              dmc.NumberInput(precision=4, step=0.1, id={'type': 'NUMBERINPUT_filterBodyNumberRight', 'index': index}),
+              span=4
+            ),
           ],
-        )
+        ),
+        # solve nonexistent id problem(callback)
+        html.Div(id={'type': 'TRANSFER_filterBodyCategorical_3D', 'index': index})
       ],
       className='div-filterBody-numeric'
     )
+    
   elif itemType == 'categorical':
     options = [{'value': i, 'label': i} for i in obs[item].unique()]
-    component = dmc.TransferList(
-      value=[options, []],
-      id='TRANSFER_filterBody_3D'
+    component = html.Div(
+      [
+        dmc.TransferList(
+          value=[options, []], titles=['Unselected', 'Selected'],
+          id={'type': 'TRANSFER_filterBodyCategorical_3D', 'index': index}
+        ),
+        # solve nonexistent id problem(callback)
+        html.Div(id={'type': 'NUMBERINPUT_filterBodyNumberLeft', 'index': index}),
+        html.Div(id={'type': 'NUMBERINPUT_filterBodyNumberRight', 'index': index}),
+      ]
     )
+    
+  else:
+    raise PreventUpdate
+  
+  return component, False
+
+@app.callback( # calculate preserved cells
+  Output({'type': 'STORE_filterBodyPreservedCells_3D', 'index': MATCH}, 'data'),
+  Output({'type': 'TEXT_filterBodyPreservedCells_3D', 'index': MATCH}, 'children'),
+  
+  Input({'type': 'TRANSFER_filterBodyCategorical_3D', 'index': MATCH}, 'value'),
+  Input({'type': 'NUMBERINPUT_filterBodyNumberLeft', 'index': MATCH}, 'value'),
+  Input({'type': 'NUMBERINPUT_filterBodyNumberRight', 'index': MATCH}, 'value'),
+  State('DROPDOWN_stage_3D', 'value'),
+  State({'type': 'DROPDOWN_filterItem_3D', 'index': MATCH}, 'value'),
+  State({'type': 'DROPDOWN_filterType_3D', 'index': MATCH}, 'value'),
+  Input({'type': 'SWITCH_filterApply_3D', 'index': MATCH}, 'checked'),
+  prevent_initial_call=True
+)
+def store_categoricalObsFilterInfo_forFilterBody_3D(transfer_value, numberLeft, numberRight, stage, item, itemType, checked):
+  
+  if item is None:
+    return None, 'Selected cells:' # clear filter when items are deleted
+
+  item_column = exp_data[stage].obs[item]
+  
+  if itemType == 'categorical':
+    if checked:
+      selected =[ d['value'] for d in transfer_value[1]]
+      cells = item_column[item_column.isin(selected)].index.to_list()
+      text = f'Selected cells: {len(cells)}'
+    else:
+      cells = None
+      text = 'Selected cells:'
+    return Serverside(cells), text
+
+  elif itemType == 'numeric':
+    if checked and (numberLeft!='' or numberRight!=''):
+      boolLeft = item_column >= numberLeft if numberLeft!='' else [True]*len(item_column)
+      boolRight = item_column <= numberRight if numberRight!='' else [True]*len(item_column)
+      cells = item_column[boolLeft & boolRight].index.to_list()
+      text = f'Selected cells: {len(cells)}'
+    else:
+      cells = None
+      text = 'Selected cells:'
+    return Serverside(cells), text
+  
   else:
     raise PreventUpdate
 
-  return component, patch_style, False
+@app.callback( # update transfer value (stage changed, categorical)
+  Output({'type': 'TRANSFER_filterBodyCategorical_3D', 'index': ALL}, 'value'),
+  Input('DROPDOWN_stage_3D', 'value'),
+  State({'type': 'DROPDOWN_filterItem_3D', 'index': ALL}, 'value'),
+  State({'type': 'TRANSFER_filterBodyCategorical_3D', 'index': ALL}, 'id'),
+)
+def update_categoricalTransferValue_forFilterBody_3D(stage, item_list, id_list):
+  
+  indices = [ id['index'] for id in id_list ]
+  items = [item_list[i] for i in indices]
 
+  value_list = [
+    [[{'value': i, 'label': i} for i in exp_data[stage].obs[item].unique()], []]
+    for item in items
+  ]
 
-# download scale
+  return value_list
+
+@app.callback( # intersection of filter-cells
+  Output('STORE_cellsObsFilter_3D', 'data'),
+  Input({'type': 'STORE_filterBodyPreservedCells_3D', 'index': ALL}, 'data'),
+  prevent_initial_call=True,
+)
+def update_cellsObsFilterStore_forJSONtoPlot(cells_list):
+  
+  def func(a,b):
+    if (a is not None) and (b is None):
+      return set(a)
+    elif (a is None) and (b is not None):
+      return set(b)
+    elif (a is not None) and (b is not None):
+      return set(a) & set(b)
+    else:
+      return None
+  
+  if len(cells_list) > 1:
+    cells = reduce(func, cells_list)
+  else:
+    cells = cells_list[0]
+  # at least one filter with cells: [None]
+  
+  return Serverside(cells)
+
+@app.callback( # add & delete selectData-filter
+  Output('CONTAINER_filterList_3D', 'children'),
+  Output('STORE_filterCurNumber_3D', 'data'),
+  Input('BUTTON_addFilter_3D', 'n_clicks'),
+  Input('BUTTON_deleteFilter_3D', 'n_clicks'),
+  State('STORE_filterCurNumber_3D', 'data'),
+  prevent_initial_call=True,
+)
+def addAndDelte_forSeleteDataFilter_3D(add, delete, curNumber):
+  
+  tid = ctx.triggered_id
+  nextIndex = curNumber
+  patch_children = Patch()
+  
+  if 'BUTTON_addFilter_3D' in tid:
+    patch_children.append(selectData_newFilter(index=nextIndex))
+    nextNumber = curNumber+1
+  elif 'BUTTON_deleteFilter_3D' in tid:
+    if nextIndex >= 2:
+      del patch_children[nextIndex-1]
+      nextNumber = curNumber-1 if curNumber>0 else 0
+    else:
+      raise PreventUpdate
+  else:
+    raise PreventUpdate
+  
+  return patch_children, nextNumber
+
+# download figure format & resolution
 @app.callback(
   Output('FIGURE_3Dcelltype', 'config'),
   Output('FIGURE_3Dexpression', 'config'),
@@ -1346,7 +1513,6 @@ app.clientside_callback(
 )
 
 # max range
-
 @app.callback(
   Output('STORE_maxRange_3D', 'data'),
   Input('DROPDOWN_stage_3D', 'value'),
@@ -1377,8 +1543,7 @@ def update_sliderRange_3D(maxRange):
   
   return  res
 
-# store_cellsInfo_forJSONtoPlot (download: ~2.5M,500ms ; compute 250ms)
-
+# store_cellsObs_forJSONtoPlot
 @app.callback(
   Output('STORE_obs_3D', 'data'),
   Input('DROPDOWN_stage_3D', 'value'),
@@ -1395,16 +1560,18 @@ def store_cellsObs_forJSONtoPlot_3D(stage, featureType):
   obs = adata.obs[['x','y','z','germ_layer','celltype']]
   return obs.to_dict('index')
 
+# store sliceInfo for JSONtoPLot
 @app.callback(
-  Output('STORE_cellsObsFilter_3D', 'data'),
+  Output('STORE_cellsSliceFilter_3D', 'data'),
   
   Input('STORE_sliceRange_3D', 'data'),
-  Input('BUTTON_slice_3D', 'n_clicks'),
-  Input('CHIPGROUP_germLayer_3D', 'value'),
   Input('DROPDOWN_stage_3D', 'value'),
   Input('DROPDOWN_featureType_3D', 'value'),
+  
+  Trigger('BUTTON_slice_3D', 'n_clicks'),
+  prevent_initial_call=True
 )
-def store_cellsInfo_forJSONtoPlot_3D(sliceRange, slice, germs, stage, featureType):
+def store_sliceInfo_forJSONtoPlot_3D(sliceRange, stage, featureType):
 
   if featureType == 'Gene':
     adata = exp_data[stage]
@@ -1413,34 +1580,25 @@ def store_cellsInfo_forJSONtoPlot_3D(sliceRange, slice, germs, stage, featureTyp
   else:
     raise PreventUpdate
   
-  obs = adata.obs[['x','y','z','germ_layer','celltype']]
+  obs = adata.obs[['x','y','z']]
 
   tid = ctx.triggered_id
   if tid and 'BUTTON_slice_3D' in tid:
     if_inSliceRange = ( 
-                        (obs['x'] <= sliceRange['x_max']) & 
-                        (obs['x'] >= sliceRange['x_min']) & 
-                        (obs['y'] <= sliceRange['y_max']) & 
-                        (obs['y'] >= sliceRange['y_min']) & 
-                        (obs['z'] <= sliceRange['z_max']) & 
-                        (obs['z'] >= sliceRange['z_min'])
-                      )
-  else:
-    if_inSliceRange = None
-  
-  if len(germs) >= 1:
-    if_ingerms = [ True if i in germs else False for i in obs['germ_layer'] ]
-  else:
-    raise PreventUpdate
-  
-  if if_inSliceRange:
+      (obs['x'] <= sliceRange['x_max']) & 
+      (obs['x'] >= sliceRange['x_min']) & 
+      (obs['y'] <= sliceRange['y_max']) & 
+      (obs['y'] >= sliceRange['y_min']) & 
+      (obs['z'] <= sliceRange['z_max']) & 
+      (obs['z'] >= sliceRange['z_min'])
+    )
     obsnames_filt = adata.obs_names[if_inSliceRange]
   else:
-    obsnames_filt = adata.obs_names[if_ingerms]
+    obsnames_filt = adata.obs_names
   
-  return Serverside(obsnames_filt)
+  return Serverside(obsnames_filt.to_list())
 
-# store_expInfo_forJSONtoPlot (download: <0.43M,<80ms; compute 320ms)
+# store_expInfo_forJSONtoPlot
 @app.callback(
   Output('STORE_cellsExpFilter_3D', 'data'),
   Output('STORE_singleExp_3D', 'data'),
@@ -1556,7 +1714,7 @@ def store_expInfo_forJSONtoPlot_3D(sclick, mclick, hideZero, stage, featureType,
   Output('CHIPGROUP_celltype_3D', 'children'),
   Output('CHIPGROUP_celltype_3D', 'value'),
   Output('STORE_allCelltypes_3D', 'data'),
-  Input('STORE_cellsObsFilter_3D', 'data'),
+  Input('STORE_cellsSliceFilter_3D', 'data'),
   Input('STORE_cellsExpFilter_3D', 'data'),
   State('DROPDOWN_stage_3D', 'value'),
   State('STORE_ctpCmap_3D', 'data'),
@@ -1628,7 +1786,7 @@ def store_ctpInfo_forJSONtoPlot_3D(selectedCtps, stage):
   series = exp_data[stage].obs['celltype']
   series = series[series.isin(selectedCtps)]
   
-  return series.index.to_list()
+  return Serverside(series.index.to_list())
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              
 # plot_3Dfigure_exp
 app.clientside_callback(
@@ -1768,7 +1926,6 @@ def update_storeCtpCmap_3D(colors):
     
     color = triggered[0]['value']
     ctp = triggered_id['id']
-    print('triggered:', color, 'triggered_id:', ctp)
     patch = Patch()
     patch[ctp] = color
     return patch
@@ -1893,16 +2050,26 @@ def switch_projectionType(type):
   patch['layout']['scene']['camera']['projection'] = {'type': type}
   return patch, patch
 
-# find intersection of 3-filter
+# find intersection of all cellsFilters
 @app.callback(
   Output('STORE_cellsIntersection_3D', 'data'),
-  Input('STORE_cellsObsFilter_3D', 'data'),
+  Input('STORE_cellsSliceFilter_3D', 'data'),
   Input('STORE_cellsExpFilter_3D', 'data'),
   Input('STORE_cellsCtpFilter_3D', 'data'),
+  Input('STORE_cellsObsFilter_3D', 'data'),
+  prevent_initial_call=True,
 )
-def intersection_of_filter(obsFilter, expFilter, ctpFilter):
-  tmp = list(set(obsFilter) & set(expFilter) & set(ctpFilter))
+def intersection_of_filter(sliceFilter, expFilter, ctpFilter, obsFilter):
+  filter_list = [ l for l in [sliceFilter, expFilter, ctpFilter, obsFilter] if l]
+  
+  if len(filter_list) == 0:
+    tmp = []
+  elif len(filter_list) == 1 :
+    tmp = filter_list[0]
+  elif len(filter_list) > 1 :
+    tmp = list(reduce(lambda a,b: set(a) & set(b), filter_list))
   tmp.sort()
+  
   return tmp
 
 # hide axes
@@ -2041,20 +2208,6 @@ def update_spatial_plotFeature3D_ctpExpViolin(featureType, stage, cells, ifmulti
 
   return fig
 
-# app.clientside_callback(
-#   ClientsideFunction(
-#     namespace='plotFunc_3Dtab',
-#     function_name='singleExpCtp_violin',
-#   ),
-#   Output('FIGURE_expViolin_3D', 'figure'),
-#   Output('FIGURE_ctpViolin_3D', 'figure'),
-#   Input('STORE_obs_3D', 'data'),
-#   Input('STORE_cellsIntersection_3D', 'data'),
-#   Input('STORE_singleExp_3D', 'data'),
-#   Input('STORE_ifmulti_3D', 'data'),
-#   Input('STORE_ctpCmap_3D', 'data'),
-#   State('SEGMENTEDCONTROL_violinPoints_3D', 'value'),
-# )
 
 # moran SVG offcanvas
 @app.callback(
