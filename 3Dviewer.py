@@ -1,108 +1,42 @@
 ## In[] env
 
-from math import isnan
-import math
-from functools import reduce
-from dash import Dash, dcc, html, dash_table, no_update, State, Patch, DiskcacheManager, clientside_callback, ctx, ClientsideFunction
+from dash import dcc, html, dash_table, no_update, State, Patch, DiskcacheManager, clientside_callback, ctx, ClientsideFunction
 from dash import ALL, MATCH, ALLSMALLER
 from dash.dash_table.Format import Format, Group, Scheme, Symbol
 from dash.exceptions import PreventUpdate
-import dash_daq as daq
-import dash_ag_grid as dag
 import dash_mantine_components as dmc
 from dash_iconify import DashIconify
 import feffery_antd_components as fac
 import feffery_utils_components as fuc
 import dash_bootstrap_components as dbc
-from dash_extensions.enrich import Output, Input, html, callback, DashProxy, LogTransform, DashLogger, Serverside, ServersideOutputTransform
-from dash_extensions.enrich import MultiplexerTransform, Trigger, TriggerTransform
+from dash_extensions.enrich import Output, Input, html, callback, DashProxy
+from dash_extensions.enrich import MultiplexerTransform, Trigger, TriggerTransform, ServersideOutputTransform, Serverside, LogTransform, DashLogger
 
 import plotly.express as px
 import plotly.graph_objects as go
-import plotly
-from plotly.subplots import make_subplots
 from plotnine import *
-import plotnine.options
 
-from PIL import Image
 import scanpy as sc
-import os
-import pandas as pd
-import dask.dataframe as dd
-import numpy as np
-# import loompy as lp
-import h5py
-import json
-import time
-import uuid
-from sqlalchemy import true
-
 import squidpy as sq
+import pandas as pd
+import numpy as np
+import math
+from functools import reduce
 
-from matplotlib import cm
-from matplotlib.colors import ListedColormap, LinearSegmentedColormap
-import matplotlib.pyplot as plt
-import re
-import seaborn as sns
-from concurrent import futures
-from typing import List, Dict, Tuple
+from typing import List, Dict
 import diskcache
 background_callback_manager = DiskcacheManager(diskcache.Cache("/rad/wuc/dash_data/spatial/cache_test"))
 
-
 ## In[] data
 
-exp_data = {
-  'E7.5': sc.read_h5ad("/rad/wuc/dash_data/spatial/matrix_data/E7.5_HC0.5_min400.h5ad"),
-  'E7.75': sc.read_h5ad("/rad/wuc/dash_data/spatial/matrix_data/E7.75_HC0.5_min400.h5ad"),
-  'E8.0': sc.read_h5ad("/rad/wuc/dash_data/spatial/matrix_data/E8.0_HC0.5_min400.h5ad")
+exp_data = { # adata
+  'E7.5': sc.read_h5ad("/rad/wuc/dash_data/spatial/matrix_data/3Dviewer-release/E7.5_HC0.5_min400.h5ad"),
+  'E7.75': sc.read_h5ad("/rad/wuc/dash_data/spatial/matrix_data/3Dviewer-release/E7.75_HC0.5_min400.h5ad"),
+  'E8.0': sc.read_h5ad("/rad/wuc/dash_data/spatial/matrix_data/3Dviewer-release/E8.0_HC0.5_min400.h5ad")
 }
 
-# for stage, data in exp_data.items():
-
-coord_data = {
-  'E7.5': pd.read_csv('/rad/wuc/dash_data/spatial/spatial_coordinate.embryo_E7.5.csv', sep=' '),
-  'E7.75': pd.read_csv('/rad/wuc/dash_data/spatial/spatial_coordinate.embryo_E7.75.csv', sep=' '),
-  'E8.0': pd.read_csv('/rad/wuc/dash_data/spatial/spatial_coordinate.embryo_E8.0.csv', sep=' ')
-}
-
-for stage in exp_data.keys():
-  exp_data[stage].obs[['x','y','z','x_flatten', 'y_flatten']] = coord_data[stage].loc[exp_data[stage].obs_names,['x','y','z','x_flatten', 'y_flatten']]
-
-for stage in exp_data.keys():
-  exp_data[stage].raw = exp_data[stage].copy()
-  sc.pp.normalize_total(exp_data[stage], target_sum=1e4)
-  sc.pp.log1p(exp_data[stage])
-  exp_data[stage].obsm = {'X_spatial': coord_data[stage].loc[exp_data[stage].obs_names,['x','y','z']]}
-
-for stage in exp_data.keys():
-  exp_data[stage]= exp_data[stage][exp_data[stage].obs_names.sort_values()]
-
-for k,v in exp_data.items():
-  v.obs.germ_layer = [i.replace('exe-ecto', 'ectoderm') for i in v.obs.germ_layer.values]
-
-auc_data = {}
-regulon_geneset = {}
-for stage in ['E7.5', 'E7.75', 'E8.0']:
-  h5 = h5py.File( '/rad/wuc/dash_data/spatial/matrix_data/%s_auc_mtx.h5' % (stage))
-  auc_mtx = pd.DataFrame(h5['auc_matrix'], index=h5['cell'][:].astype(str), columns=h5['regulon'][:].astype(str))
-  auc_data[stage] = sc.AnnData(X=auc_mtx.loc[exp_data[stage].obs_names,:], obs=exp_data[stage].obs)
-  regulon_geneset[stage] = json.loads(h5['geneset'][()])
-  h5.close()
-del(auc_mtx)
-
-genes_min_pval = pd.read_csv("/rad/wuc/dash_data/spatial/sparkX_res/genes_padj_minVal.csv",
-                             header=[0], index_col=[0,1]) 
-
-genes_all_pval = pd.read_csv("/rad/wuc/dash_data/spatial/sparkX_res/genes_padj_combine.csv",
-                             header=[0,1], index_col=[0,1]) 
-genes_all_pval = genes_all_pval.loc[:,[('ecto', 'adjustedPval'), ('meso', 'adjustedPval'), ('endo', 'adjustedPval'), ('all', 'adjustedPval')]]
-genes_all_pval.columns = ['ecto p.adj', 'meso p.adj', 'endo p.adj', 'all p.adj']
-genes_all_pval = genes_all_pval.groupby(level=0, group_keys=False
-                                               ).apply(lambda x: x.sort_values(by='all p.adj'))
 ctp_cmap = pd.read_csv("/rad/wuc/dash_data/spatial/celltype_cmap.csv")
 ctp_cmap = dict(zip(ctp_cmap['celltype'], ctp_cmap['Epiblast']))
-
 
 # In[] functions:
 def show_expViolin(adata, feature, **kws):
@@ -528,18 +462,8 @@ spatial_tab_plotFeature3D = dbc.Tab(
               title = dmc.Text('Select data', className='dmc-Text-sidebar-title'),
               children = [
                 dmc.Grid([
+                  dmc.Col(dmc.Text("Stage:", className='dmc-Text-label'), span=4),
                   dmc.Col([
-                    dbc.Label("Feature type"),
-                    dcc.Dropdown(
-                      ['Gene', 'Regulon'],
-                      'Gene',
-                      id="DROPDOWN_featureType_3D",
-                      clearable=False,
-                      searchable=True,
-                    ),
-                  ], span=6),
-                  dmc.Col([
-                    dbc.Label("Stage"),
                     dcc.Dropdown(
                       ['E7.5', 'E7.75', 'E8.0'],
                       'E7.5',
@@ -547,7 +471,7 @@ spatial_tab_plotFeature3D = dbc.Tab(
                       clearable=False,
                       searchable=True,
                     ),
-                  ], span=6),
+                  ], span=8),
                   dmc.Col(dmc.Text(id='TEXT_dataSummary_3D', color='gray'), span=12),
                   dmc.Col(
                     fac.AntdCollapse(
@@ -1357,15 +1281,10 @@ def update_violinPointpos_3D(boxwidth, allCelltypes, minfo):
 # update_dataSummary
 @app.callback(
   Output('TEXT_dataSummary_3D', 'children'),
-  Input('DROPDOWN_featureType_3D', 'value'),
   Input('DROPDOWN_stage_3D', 'value')
 )
-def update_dataSummary_3D(featureType, stage):
-  if featureType == 'Gene':
-    adata = exp_data[stage]
-  elif featureType == 'Regulon':
-    adata = auc_data[stage]
-    
+def update_dataSummary_3D(stage):
+  adata = exp_data[stage]
   str = f'{adata.shape[0]}(cells) × {adata.shape[1]}(features)'
   return str
 
@@ -1373,47 +1292,33 @@ def update_dataSummary_3D(featureType, stage):
 @app.callback(
   Output('DROPDOWN_singleName_3D', 'options'),
   Input('DROPDOWN_singleName_3D', 'search_value'),
-  Input('DROPDOWN_featureType_3D', 'value'),
   Input('DROPDOWN_stage_3D', 'value')
 )
-def update_nameOptions_single_3D(search, featureType, stage):
+def update_nameOptions_single_3D(search, stage):
   if not search:
     raise PreventUpdate
-  
-  if featureType == 'Gene':
-    if not search:
-      opts = exp_data[stage].var_names
-    else:
-      opts = exp_data[stage].var_names[exp_data[stage].var_names.str.startswith(search)].sort_values()
-  elif featureType == 'Regulon':
-    if not search:
-      opts = auc_data[stage].var_names
-    else:
-      opts = auc_data[stage].var_names[auc_data[stage].var_names.str.startswith(search)].sort_values()
-  
+
+  if not search:
+    opts = exp_data[stage].var_names
+  else:
+    opts = exp_data[stage].var_names[exp_data[stage].var_names.str.startswith(search)].sort_values()
+
   return opts
 
 @app.callback(
   Output({'type': 'DROPDOWN_multiName_3D', 'index': MATCH}, 'options'),
   Input({'type': 'DROPDOWN_multiName_3D', 'index': MATCH}, 'search_value'),
-  Input('DROPDOWN_featureType_3D', 'value'),
   Input('DROPDOWN_stage_3D', 'value'),
   prevent_initial_call=True,
 )
-def update_nameOptions_multi_3D(search, featureType, stage):
+def update_nameOptions_multi_3D(search,stage):
   if not search:
     raise PreventUpdate
   
-  if featureType == 'Gene':
-    if not search:
-      opts = exp_data[stage].var_names
-    else:
-      opts = exp_data[stage].var_names[exp_data[stage].var_names.str.startswith(search)].sort_values()
-  elif featureType == 'Regulon':
-    if not search:
-      opts = auc_data[stage].var_names
-    else:
-      opts = auc_data[stage].var_names[auc_data[stage].var_names.str.startswith(search)].sort_values()
+  if not search:
+    opts = exp_data[stage].var_names
+  else:
+    opts = exp_data[stage].var_names[exp_data[stage].var_names.str.startswith(search)].sort_values()
   
   return opts
 
@@ -1424,17 +1329,11 @@ def update_nameOptions_multi_3D(search, featureType, stage):
   Input('BUTTON_addFeature_3D', 'n_clicks'),
   Input('BUTTON_deleteFeature_3D', 'n_clicks'),
   State('STORE_multiNameCurNumber', 'data'),
-  State('DROPDOWN_featureType_3D', 'value'),
   State('DROPDOWN_stage_3D', 'value'),
   prevent_initial_call = True,
 )
-def add_components_multiName_3D(add, delete, curNumber, featureType, stage):
-  
-  if featureType == 'Gene':
-    opts = exp_data[stage].var_names
-  elif featureType == 'Regulon':
-    opts = auc_data[stage].var_names
-  
+def add_components_multiName_3D(add, delete, curNumber, stage):
+
   id = ctx.triggered_id
 
   nextIndex = curNumber
@@ -1527,15 +1426,10 @@ def update_sliderRange_3D(maxRange):
 @app.callback(
   Output('STORE_obs_3D', 'data'),
   Input('DROPDOWN_stage_3D', 'value'),
-  Input('DROPDOWN_featureType_3D', 'value'),
 )
-def store_cellsObs_forJSONtoPlot_3D(stage, featureType):
-  if featureType == 'Gene':
-    adata = exp_data[stage]
-  elif featureType == 'Regulon':
-    adata = auc_data[stage]
-  else:
-    raise PreventUpdate
+def store_cellsObs_forJSONtoPlot_3D(stage):
+  
+  adata = exp_data[stage]
   
   obs = adata.obs[['x','y','z','celltype']]
   return obs.to_dict('index')
@@ -1546,19 +1440,13 @@ def store_cellsObs_forJSONtoPlot_3D(stage, featureType):
   
   Input('STORE_sliceRange_3D', 'data'),
   Input('DROPDOWN_stage_3D', 'value'),
-  Input('DROPDOWN_featureType_3D', 'value'),
   
   Trigger('BUTTON_slice_3D', 'n_clicks'),
   prevent_initial_call=True
 )
-def store_sliceInfo_forJSONtoPlot_3D(sliceRange, stage, featureType):
+def store_sliceInfo_forJSONtoPlot_3D(sliceRange, stage):
 
-  if featureType == 'Gene':
-    adata = exp_data[stage]
-  elif featureType == 'Regulon':
-    adata = auc_data[stage]
-  else:
-    raise PreventUpdate
+  adata = exp_data[stage]
   
   obs = adata.obs[['x','y','z']]
 
@@ -1590,20 +1478,14 @@ def store_sliceInfo_forJSONtoPlot_3D(sliceRange, stage, featureType):
   Input('BUTTON_multiPlot_3D', 'n_clicks'),
   Input('SWITCH_hideZero_3D', 'checked'),
   Input('DROPDOWN_stage_3D', 'value'),
-  Input('DROPDOWN_featureType_3D', 'value'),
   
   State('DROPDOWN_singleName_3D', 'value'),
   State('STORE_multiNameInfo_3D', 'data'),
   State('STORE_ifmulti_3D', 'data'),
 )
-def store_expInfo_forJSONtoPlot_3D(sclick, mclick, hideZero, stage, featureType, sname, minfo, ifmulti):
+def store_expInfo_forJSONtoPlot_3D(sclick, mclick, hideZero, stage, sname, minfo, ifmulti):
 
-  if featureType == 'Gene':
-    adata = exp_data[stage]
-  elif featureType == 'Regulon':
-    adata = auc_data[stage]
-  else:
-    raise PreventUpdate
+  adata = exp_data[stage]
 
   def return_single():
     ifmulti = False
@@ -1643,7 +1525,7 @@ def store_expInfo_forJSONtoPlot_3D(sclick, mclick, hideZero, stage, featureType,
   
   btn_id = ctx.triggered_id
   if btn_id:
-    if 'DROPDOWN_stage_3D' in btn_id or 'DROPDOWN_featureType_3D' in btn_id:
+    if 'DROPDOWN_stage_3D' in btn_id:
       if not ifmulti:
         ifmulti,exp,cellsExpFilter = return_single()
         exp = exp.to_dict('index')
@@ -2105,7 +1987,6 @@ def update_previewBox(showBox, preRange):
 # violin plot
 @app.callback(
   Output('FIGURE_expViolin_3D', 'figure'),
-  Input('DROPDOWN_featureType_3D', 'value'),
   Input('DROPDOWN_stage_3D', 'value'),
   Input('STORE_cellsIntersection_3D', 'data'),
   Input('STORE_ifmulti_3D', 'data'),
@@ -2122,14 +2003,11 @@ def update_previewBox(showBox, preRange):
   # background = True,
   # manager = background_callback_manager,
 )
-def update_spatial_plotFeature3D_expViolin(featureType, stage, cells, ifmulti, splot, mplot, sname, minfo, 
+def update_spatial_plotFeature3D_expViolin(stage, cells, ifmulti, splot, mplot, sname, minfo, 
                                            points, pointpos, pointsize,jitter, box, boxwidth):
   
-  if featureType == 'Gene':
-      adata = exp_data[stage]
-  elif featureType == 'Regulon':
-      adata = auc_data[stage]
-  
+  adata = exp_data[stage]
+
   adata = adata[cells]
 
   points = False if points=='none' else points
@@ -2148,7 +2026,6 @@ def update_spatial_plotFeature3D_expViolin(featureType, stage, cells, ifmulti, s
 
 @app.callback(
   Output('FIGURE_ctpViolin_3D', 'figure'),
-  Input('DROPDOWN_featureType_3D', 'value'),
   Input('DROPDOWN_stage_3D', 'value'),
   Input('STORE_cellsIntersection_3D', 'data'),
   Input('STORE_ifmulti_3D', 'data'),
@@ -2165,13 +2042,9 @@ def update_spatial_plotFeature3D_expViolin(featureType, stage, cells, ifmulti, s
   # background = True,
   # manager = background_callback_manager,
 )
-def update_spatial_plotFeature3D_ctpExpViolin(featureType, stage, cells, ifmulti, splot, mplot, sname, minfo, 
+def update_spatial_plotFeature3D_ctpExpViolin(stage, cells, ifmulti, splot, mplot, sname, minfo, 
                                               points, pointpos, pointsize, jitter, box, boxwidth):
-  if featureType == 'Gene':
-      adata = exp_data[stage]
-  elif featureType == 'Regulon':
-      adata = auc_data[stage]
-
+  adata = exp_data[stage]
   adata = adata[cells]
 
   points = False if points=='none' else points
@@ -2206,7 +2079,6 @@ def show_moranRes_offcanvas(click):
   Input('BUTTON_calMoran_3D', 'n_clicks'),
   State('STORE_cellsIntersection_3D', 'data'),
   State('DROPDOWN_stage_3D', 'value'),
-  State('DROPDOWN_featureType_3D', 'value'),
   prevent_initial_call=True,
   background = True,
   manager = background_callback_manager,
@@ -2217,12 +2089,9 @@ def show_moranRes_offcanvas(click):
     (Output('OFFCANVAS_moranRes_3D', 'is_open'), False, True),
   ]
 )
-def cal_moranRes(click, cells, stage, featureType):
+def cal_moranRes(click, cells, stage):
   
-  if featureType == 'Gene':
-    adata = exp_data[stage]
-  elif featureType == 'Regulon':
-    adata = auc_data[stage]
+  adata = exp_data[stage]
   
   df = cal_moran_3D(adata[cells])
   df = df.reset_index(names='Feature')
