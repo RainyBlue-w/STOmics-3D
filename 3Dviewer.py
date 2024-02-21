@@ -10,7 +10,7 @@ import feffery_antd_components as fac
 import feffery_utils_components as fuc
 import dash_bootstrap_components as dbc
 from dash_extensions.enrich import Output, Input, html, callback, DashProxy
-from dash_extensions.enrich import MultiplexerTransform, Trigger, TriggerTransform, ServersideOutputTransform, Serverside, LogTransform, DashLogger
+from dash_extensions.enrich import MultiplexerTransform, Trigger, TriggerTransform, ServersideOutputTransform, Serverside, LogTransform
 
 import plotly.express as px
 import plotly.graph_objects as go
@@ -25,14 +25,14 @@ from functools import reduce
 
 from typing import List, Dict
 import diskcache
-background_callback_manager = DiskcacheManager(diskcache.Cache("/rad/wuc/dash_data/spatial/cache_test"))
+background_callback_manager = DiskcacheManager(diskcache.Cache("./cache/"))
 
 ## In[] data
 
 exp_data = { # adata
-  'E7.5': sc.read_h5ad("/rad/wuc/dash_data/spatial/matrix_data/3Dviewer-release/E7.5_HC0.5_min400.h5ad"),
-  'E7.75': sc.read_h5ad("/rad/wuc/dash_data/spatial/matrix_data/3Dviewer-release/E7.75_HC0.5_min400.h5ad"),
-  'E8.0': sc.read_h5ad("/rad/wuc/dash_data/spatial/matrix_data/3Dviewer-release/E8.0_HC0.5_min400.h5ad")
+  'E7.5': sc.read_h5ad("./data/E7.5_HC0.5_min400.h5ad"),
+  'E7.75': sc.read_h5ad("./data/E7.75_HC0.5_min400.h5ad"),
+  'E8.0': sc.read_h5ad("./data/E8.0_HC0.5_min400.h5ad")
 }
 
 ctp_cmap = pd.read_csv("/rad/wuc/dash_data/spatial/celltype_cmap.csv")
@@ -914,6 +914,10 @@ spatial_tab_plotFeature3D = dbc.Tab(
   tab_id = "spatial_tab_plotFeature3D",
 )
 
+spatial_tab_multiPlot3D = dbc.Tab(
+  
+)
+
 spatial_tabs = dbc.Tabs(
     children=[spatial_tab_plotFeature3D],
     active_tab = 'spatial_tab_plotFeature3D',
@@ -951,7 +955,7 @@ def update_selectData_FilterType_3D(item, stage):
     return no_update, False
   
   dtype = exp_data[stage].obs[item].dtype
-  itemType = 'categorical' if dtype==np.dtype('O') else 'numeric'
+  itemType = 'categorical' if ( dtype in [np.dtype('O'), 'category']) else 'numeric'
   
   return itemType, False
 
@@ -2122,10 +2126,12 @@ app.layout = dbc.Container(
 )
 
 if __name__ == '__main__':
-  app.run_server(
-    host='10.193.0.208',
+  app.run(
+    host='::',
     port='8051',
+    threaded=True,
+    proxy=None,
     debug=True,
-    jupyter_mode = 'external'
+    use_reloader=False,
+    jupyter_mode = 'external',
   )
-  
