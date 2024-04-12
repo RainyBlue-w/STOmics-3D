@@ -15,9 +15,7 @@ from dash_extensions.enrich import MultiplexerTransform, Trigger, TriggerTransfo
 
 import plotly.express as px
 import plotly.graph_objects as go
-from plotnine import *
 
-import flask
 import scanpy as sc
 import squidpy as sq
 import pandas as pd
@@ -28,21 +26,28 @@ from functools import reduce
 from typing import List, Dict
 import diskcache
 
-background_callback_manager = DiskcacheManager(diskcache.Cache("cache/"))
 
-## In[] data
 
-exp_data = { # adata
-  'E7.5': sc.read_h5ad("data/E7.5_HC0.5_min400.h5ad"),
-  'E7.75': sc.read_h5ad("data/E7.75_HC0.5_min400.h5ad"),
-  'E8.0': sc.read_h5ad("data/E8.0_HC0.5_min400.h5ad")
-}
-
-ctp_cmap = pd.read_csv("/rad/wuc/dash_data/spatial/celltype_cmap.csv")
-ctp_cmap = dict(zip(ctp_cmap['celltype'], ctp_cmap['Epiblast']))
-
+# def create_3dviewer(
+#   anndata_path: str,
+#   cmap_path: str,
+#   cache_path: str,
+#   requests_pathname_prefix: str = None,
+#   ) -> Dash:
 
 def create_3dviewer(requests_pathname_prefix: str = None) -> Dash:
+
+  background_callback_manager = DiskcacheManager(diskcache.Cache("cache/"))
+
+  ## In[] data
+
+  exp_data = { # adata
+    'E7.5': sc.read_h5ad("data/E7.5_HC0.5_min400.h5ad"),
+    'E7.75': sc.read_h5ad("data/E7.75_HC0.5_min400.h5ad"),
+    'E8.0': sc.read_h5ad("data/E8.0_HC0.5_min400.h5ad")
+  }
+  ctp_cmap = pd.read_csv("data/celltype_cmap.csv")
+  ctp_cmap = dict(zip(ctp_cmap.iloc[:,0], ctp_cmap.iloc[:,1]))
 
   # In[] functions:
   def show_expViolin(adata, feature, **kws):
