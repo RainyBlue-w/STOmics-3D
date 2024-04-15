@@ -21,34 +21,32 @@ import squidpy as sq
 import pandas as pd
 import numpy as np
 import math
+import os
 from functools import reduce
 
 from typing import List, Dict
 import diskcache
 
 
+# In[] from:
+def create_3dviewer(
+  path_celltype_palette: str,
+  dir_h5ad_files: str = 'data/',
+  dir_cache: str = 'cache/',
+  requests_pathname_prefix: str = '/'
+) -> Dash:
 
-# def create_3dviewer(
-#   anndata_path: str,
-#   cmap_path: str,
-#   cache_path: str,
-#   requests_pathname_prefix: str = None,
-#   ) -> Dash:
-
-def create_3dviewer(requests_pathname_prefix: str = None) -> Dash:
-
-  background_callback_manager = DiskcacheManager(diskcache.Cache("cache/"))
-
-  ## In[] data
-
-  exp_data = { # adata
-    'E7.5': sc.read_h5ad("data/E7.5_HC0.5_min400.h5ad"),
-    'E7.75': sc.read_h5ad("data/E7.75_HC0.5_min400.h5ad"),
-    'E8.0': sc.read_h5ad("data/E8.0_HC0.5_min400.h5ad")
-  }
-  ctp_cmap = pd.read_csv("data/celltype_cmap.csv")
-  ctp_cmap = dict(zip(ctp_cmap.iloc[:,0], ctp_cmap.iloc[:,1]))
-
+  background_callback_manager = DiskcacheManager(diskcache.Cache(dir_cache))
+  
+  h5ad_files = [ f for f in os.listdir(dir_h5ad_files) if f.endswith('.h5ad')]
+  
+  exp_data = {}
+  for f in h5ad_files:
+    exp_data[f] = sc.read_h5ad(os.path.join(dir_h5ad_files, f))
+  
+  ctp_cmap = pd.read_csv(path_celltype_palette)
+  ctp_cmap = dict(zip(ctp_cmap['celltype'], ctp_cmap['color'])) # csv必须包括celltype和color列
+  
   # In[] functions:
   def show_expViolin(adata, feature, **kws):
     data = adata[:,feature].to_df()[feature]
@@ -283,23 +281,12 @@ def create_3dviewer(requests_pathname_prefix: str = None) -> Dash:
   )
 
   header = dbc.NavbarSimple(
-      [
-          dbc.DropdownMenu(
-              children=[
-                  # dbc.DropdownMenuItem('spatial', href='/'),
-                  # dbc.DropdownMenuItem("atlas", href='/atlas'),
-                  # dbc.DropdownMenuItem("reik", href='/reik'),
-              ],
-              nav=True,
-              in_navbar=True,
-              label="Dataset",
-          ),
-      ],
-      brand="Omics-viewer",
-      color="dark",
-      dark=True,
-      # sticky='top',
-      style = {"height": "6vh"}
+    children=[],
+    brand="STomics-3D",
+    color="dark",
+    dark=True,
+    # sticky='top',
+    style = {"height": "6vh"}
   )
 
   # In[] global vars
@@ -327,7 +314,6 @@ def create_3dviewer(requests_pathname_prefix: str = None) -> Dash:
     }
   }
 
-
   # In[] widgets
 
   SET_STORE_JSONtoPlot_3D = html.Div(
@@ -340,7 +326,7 @@ def create_3dviewer(requests_pathname_prefix: str = None) -> Dash:
       dcc.Store(data={}, id='STORE_multiExp_3D'),
       dcc.Store(data={}, id='STORE_mixedColor_3D'),
       dcc.Store(data=False, id='STORE_ifmulti_3D'),
-      dcc.Store(data=ctp_cmap, id='STORE_ctpCmap_3D', storage_type='local'),
+      dcc.Store(data=ctp_cmap, id='STORE_ctpCmap_3D'),
       dcc.Store(id='STORE_cellsCtpFilter_3D'), # Server-side
       dcc.Store(id='STORE_cellsIntersection_3D'),
       dcc.Store(id='test'),
@@ -348,9 +334,9 @@ def create_3dviewer(requests_pathname_prefix: str = None) -> Dash:
   )
 
   init_range = dict(
-    x_min = np.floor(exp_data['E7.5'].obs.x.min()/10)*10, x_max = np.ceil(exp_data['E7.5'].obs.x.max()/10)*10,
-    y_min = np.floor(exp_data['E7.5'].obs.y.min()/10)*10, y_max = np.ceil(exp_data['E7.5'].obs.y.max()/10)*10,
-    z_min = np.floor(exp_data['E7.5'].obs.z.min()/10)*10, z_max = np.ceil(exp_data['E7.5'].obs.z.max()/10)*10,
+    x_min = np.floor(exp_data[h5ad_files[0]].obs.x.min()/10)*10, x_max = np.ceil(exp_data[h5ad_files[0]].obs.x.max()/10)*10,
+    y_min = np.floor(exp_data[h5ad_files[0]].obs.y.min()/10)*10, y_max = np.ceil(exp_data[h5ad_files[0]].obs.y.max()/10)*10,
+    z_min = np.floor(exp_data[h5ad_files[0]].obs.z.min()/10)*10, z_max = np.ceil(exp_data[h5ad_files[0]].obs.z.max()/10)*10,
   )
 
   SET_STORE_Ranges_3D = html.Div(
@@ -472,16 +458,16 @@ def create_3dviewer(requests_pathname_prefix: str = None) -> Dash:
                 title = dmc.Text('Select data', className='dmc-Text-sidebar-title'),
                 children = [
                   dmc.Grid([
-                    dmc.Col(dmc.Text("Stage:", className='dmc-Text-label'), span=4),
+                    dmc.Col(dmc.Text("File:", className='dmc-Text-label'), span=2),
                     dmc.Col([
                       dcc.Dropdown(
-                        ['E7.5', 'E7.75', 'E8.0'],
-                        'E7.5',
+                        h5ad_files,
+                        h5ad_files[0],
                         id="DROPDOWN_stage_3D",
                         clearable=False,
                         searchable=True,
                       ),
-                    ], span=8),
+                    ], span=10),
                     dmc.Col(dmc.Text(id='TEXT_dataSummary_3D', color='gray'), span=12),
                     dmc.Col(
                       fac.AntdCollapse(
@@ -660,7 +646,7 @@ def create_3dviewer(requests_pathname_prefix: str = None) -> Dash:
                           dmc.Grid([
                             dmc.Col([
                               dcc.Dropdown(
-                                options = exp_data['E7.5'].var_names,
+                                options = exp_data[h5ad_files[0]].var_names,
                                 value = 'Cdx1',
                                 id="DROPDOWN_singleName_3D",
                                 clearable=False
@@ -2112,8 +2098,6 @@ def create_3dviewer(requests_pathname_prefix: str = None) -> Dash:
             ]
           )
 
-  # In[] run:
-
   tabs = html.Div(
     spatial_tabs,
   )
@@ -2133,3 +2117,22 @@ def create_3dviewer(requests_pathname_prefix: str = None) -> Dash:
   return app
 
 
+# In[]:  run
+if __name__ == '__main__':
+  
+  dash_app=create_3dviewer(
+    path_celltype_palette='data/celltype_cmap.csv',
+    dir_h5ad_files='data/',
+    dir_cache='cache/',
+    requests_pathname_prefix='/',
+  )
+  
+  dash_app.run(
+    port=8052,
+    host='0.0.0.0', 
+    debug=True,
+    jupyter_mode='external', 
+    use_reloader=False,
+    threaded=True
+  )
+# %%
